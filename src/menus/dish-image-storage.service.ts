@@ -322,10 +322,31 @@ export class DishImageStorageService {
         headers,
         body: JSON.stringify(settings),
       });
-      const duplicateBucket =
-        response.status === 409 ||
-        (response.status === 400 && /already exists|duplicate/i.test(await response.text()));
-      if (duplicateBucket) {
+    } catch {
+      throw new ServiceUnavailableException('No se pudo conectar con Supabase Storage');
+    }
+
+    let shouldUpdateBucket = false;
+    if (response.status === 400) {
+      let body: string;
+      try {
+        body = await response.text();
+      } catch {
+        await this.discardStorageResponseBody(response);
+        throw new ServiceUnavailableException('No se pudo leer la respuesta de Supabase Storage');
+      }
+
+      const duplicateBucketMessage =
+        /\b(?:bucket|resource)\b[\s\S]{0,80}\b(?:already exists|exists already)\b/i.test(body) ||
+        /\b(?:already exists|exists already)\b[\s\S]{0,80}\b(?:bucket|resource)\b/i.test(body);
+      shouldUpdateBucket = duplicateBucketMessage;
+    } else {
+      shouldUpdateBucket = response.status === 409;
+      await this.discardStorageResponseBody(response);
+    }
+
+    if (shouldUpdateBucket) {
+      try {
         response = await fetch(`${baseUrl}/storage/v1/bucket/${BUCKET}`, {
           method: 'PUT',
           headers,
@@ -335,13 +356,45 @@ export class DishImageStorageService {
             allowed_mime_types: Object.keys(IMAGE_TYPES),
           }),
         });
+      } catch {
+        throw new ServiceUnavailableException('No se pudo conectar con Supabase Storage');
       }
-    } catch {
-      throw new ServiceUnavailableException('No se pudo conectar con Supabase Storage');
+      await this.discardStorageResponseBody(response);
     }
 
     if (!response.ok) {
-      throw new InternalServerErrorException('No se pudo preparar el bucket de imágenes de Karta');
+      const guidance = this.getStorageStatusGuidance(response.status);
+      throw new InternalServerErrorException(
+        `No se pudo preparar el bucket de imágenes de Karta (HTTP ${response.status}). ${guidance}`,
+      );
+    }
+  }
+
+  private async discardStorageResponseBody(response: Response) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      throw new ServiceUnavailableException('No se pudo leer la respuesta de Supabase Storage');
+    }
+  }
+
+  private getStorageStatusGuidance(status: number): string {
+    switch (status) {
+      case 400:
+        return 'Revisa la configuración solicitada para el bucket.';
+      case 401:
+      case 403:
+        return 'Verifica las credenciales y permisos de Storage.';
+      case 404:
+        return 'Verifica la configuración del servicio de Storage.';
+      case 413:
+        return 'Revisa los límites de tamaño configurados para el bucket.';
+      case 429:
+        return 'Inténtalo de nuevo más tarde.';
+      default:
+        return status >= 500
+          ? 'El servicio de Storage no está disponible; inténtalo de nuevo más tarde.'
+          : 'Verifica la configuración del servicio de Storage.';
     }
   }
 

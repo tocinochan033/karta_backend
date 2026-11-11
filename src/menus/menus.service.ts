@@ -256,7 +256,12 @@ export class MenusService {
     return this.prisma.$transaction(
       async (tx) => {
         // Shared KART/DISH lock serializes every database reference change and its Storage cleanup.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(1262574164, 1145652040)`;
+        await tx.$queryRaw`
+          WITH lock AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(1262574164, 1145652040)
+          )
+          SELECT 1 FROM lock
+        `;
         return work(tx);
       },
       { maxWait: 10_000, timeout: 120_000 },
