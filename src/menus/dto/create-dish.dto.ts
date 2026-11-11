@@ -7,6 +7,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateDishDto {
@@ -32,8 +33,9 @@ export class CreateDishDto {
   currency?: string;
 
   @ApiPropertyOptional()
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
+  @MaxLength(2048)
   imageUrl?: string;
 
   @ApiPropertyOptional({ example: true })

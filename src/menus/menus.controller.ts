@@ -3,21 +3,27 @@ import {
   Controller,
   Delete,
   Get,
+  BadRequestException,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
+  UploadedFile,
+  UseInterceptors,
   UseGuards,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { MenusService } from './menus.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateDishDto } from './dto/create-dish.dto';
+import { DeleteDishImageDto } from './dto/delete-dish-image.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { UploadedDishImage } from './dish-image-storage.service';
 
 @ApiTags('menus')
 @Controller()
@@ -75,6 +81,32 @@ export class MenusController {
     @Body() dto: CreateDishDto,
   ) {
     return this.menusService.createDish(id, user.id, user.role, dto);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(RolesGuard)
+  @Roles('owner', 'admin')
+  @Post('menu-categories/:id/dishes/image')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  uploadDishImage(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: { id: string; role: string },
+    @UploadedFile() file: UploadedDishImage | undefined,
+  ) {
+    if (!file) throw new BadRequestException('Selecciona una imagen de platillo');
+    return this.menusService.uploadDishImage(id, user.id, user.role, file);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(RolesGuard)
+  @Roles('owner', 'admin')
+  @Delete('menu-categories/:id/dishes/image')
+  deleteDishImage(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: { id: string; role: string },
+    @Body() dto: DeleteDishImageDto,
+  ) {
+    return this.menusService.deleteDishImage(id, user.id, user.role, dto.imageUrl);
   }
 
   @ApiBearerAuth()
